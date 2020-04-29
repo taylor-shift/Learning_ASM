@@ -1,0 +1,236 @@
+#BASICS
+
+In ASM you have a segmented memory model, which is why you divide things in section like .data or .bss
+
+.data is the section used to declared the memory region where data elements are stored in our program. It is used to declare constants.
+
+.bss is the section where we typically store buffers for data to be declared later in the program i.e variables. The buffer memory is zero filled on start.
+
+both are static and can't be increased after declaration.
+
+.text is the section that stores the instructions you'll actually run. It is also fixed
+
+You also have the stack, that contains values passed to functions and procedures in the program
+
+Getting stuff to and from RAM is slow, that's why we can use registers to access memory inside the CPU. 
+The number of registers is dictated by the instruction set architecture (ISA):
+
+	* IA-32 has 16 registers
+	* x64 has 40 registers
+
+They are grouped into different categories for IA-32:
+* General
+	* Data
+		What you use depends on bit size
+		* Complete
+			- EAX, EBX, ECX, EDX
+		* Lower halves (as 16 bit)
+			- AX, BX, CX, DX
+				AX is the primary accumulator, used to output most arithmetic instruction
+				BX is known as the base register as it can be used in indexed addressing
+				CX "" count register, as the ECX it stores the loop count
+				DX "" data register, used with AX and DX for multiply and div ops involving large numbers		
+		* Lower & higher halves (as 8 bit)
+			- AH, AL, BH, BL, CH, CL, DH, DL
+	* Pointer
+		- IP (instruction pointer)
+			Stores address of the next instruction to be executed, in assoc with CS (CS:IP) gives address of the current instruction in code segment
+		- SP (stack pointer)
+			Stores addr to stack, in assoc with SS (SS:SP) refers to current position of data or addr within program stack
+		- BP (base pointer)
+			Helps in referencing the parameter variables passed to a subroutine, can be combined with SS to get location of param
+	* Index
+		rightmost 16bits of ESI and EDI
+		- SI (source index)
+			Used as source index for string ops
+		- DI (dest index)
+			Used as dest index for string ops
+			
+*Control*
+	These are flags, there are many of them. Too many to put on here.
+	
+*Segment*
+	- CS stores starting addr for code segment
+	- DS "" data segment
+	- Stack segment contains data and return addr of procedures or subroutines. Implemented as a stack data structure
+
+System calls are API's for the interface between user space & kernel. Sys_write (4) and sys_exit (1) are system calls.
+
+To make a system call you:
+* put call number in EAX register
+* store args to call in EBX, ECX, etc
+* call relevant interrupt (0x80 call kernel in Linux)
+* result is usually returned to the EAX register
+
+Arguments are consecutive (from EBX to EBP, in order), if there are more than 6 args, then the addr of the first arg is stored
+in the EBX register
+
+* All syscalls are stored in /usr/include/asm/unistd.h along witht their values (number we put in EAX before calling interrupt
+to kernel
+
+An operand provides the location where the data to be processed is store. Some instructions do not require them, whereas some
+instructions may require > 3. When an instruction requires two operands, the first one is generall the dest which contains
+data or a memory addr and the second is the source. Source contains data to be delivered or address of the data. Generally
+source data is unaltered after the operation.
+
+Three basic modes of adressing are:
+*register (EAX, EBX, etc)
+	mov count, cx	 ;Register first operand (move what's in cx into count)
+	mov dx, tax_rate ;Register second operand (move tax_rate into dx)
+	mov EAX, EBX	 ;Move both operands to EAX
+	
+*immediate adressing*
+Has a constant value or an expression
+	byte_value db 150 ;A byte value defined (db)
+	word_value dw 300 ;A word value defined (dw)
+	add byte_value, 65;Immidiate operand
+	mov ax, 0x45 ; Immidiate constant 0x45 or 45h is moved to ax
+	
+*memory addressing
+Direct access to memory is required, is much slower than other methods. To locate data in memory, we need the segment
+start addre (typically found in DS) and an offset value. Offset value is also called effective address. In this method,
+offset value is specified directly as part of the instruction, usually by variable name. Assembler calculates offset values
+and maintains a symbol table which stores the offset values for every varible used in program.
+First operand refers to memory location, second refers to a register.
+	add byte_value, dl ;Adds register in memory location
+	mov bx, word_value ;Operand from memory is added to register
+	
+*direct-offset addressing*
+	byte_table db 14, 20, 22, 50 	 ;Table of bytes
+	word_table dw 134, 200, 800, 300 ;Table of words
+	
+	mov cl, byte_table[2]	;Gets third element of byte_table and stores in cl register
+	mov cl, byte_table + 2  ;"" in the way that pointer arithmetic is used in C
+	mov cx, word_table [3]  ;"" word_table and stores in cx register
+	mov cx, word_table + 3	;""
+	
+*indirect memory addressing*
+Typically used for variables containing several elements, like an array
+	my_table times 10 dw 0 ;Allocated 10 words (2 bytes) and zeroes them out
+	mov ebx, [my_table]	   ;Put effective address (offset) of my_table in ebx register
+	mov [ebx], 110		   ;Put value 110 into whatever address is held in ebx. Same as my_table[0] = 110 or *ptr = value in C
+	add ebx, 2			   ;Increase offset held in ebx by a word (2 bytes). Same as ebx = ebx + 2. Similar to ptr + 2 in C
+	mov [ebx], 123		   ;Put value of 123 into whatever address is held in ebx. Same as my_table[1] = 123
+
+#TYPES
+
+Type	bytes
+byte	1
+word	2
+dword	4
+aword	8
+tbyte	10
+
+#VARIABLES
+
+*Initialized Data*
+syntax for initialized data:
+	[varibale-name] define-directive initial-value [initial-value]
+
+Directive	Purpose				Storage Space
+DB			Define Byte			1 byte
+DW			Define Word			2 bytes
+DD			Define Doubleword	4 bytes
+DQ			Define Quadword		8 bytes
+DT			Define Ten Bytes	10 bytes
+
+choice 			db 'y'
+number 			dw 12345
+neg_number		dw -12345
+big_number		dq 123456789
+real_number1	dd 1.234
+real_number2	dq 123.456
+
+* Each byte of char is stored as ascii values in hex
+* Each dec value is automatically converted to its 16 bit binary equivalent and stored as hex
+* Keep in mind your endianess (big or little endian)
+* Negative numbers are converted to its 2's complement representation
+	How do we express -28 in binary?
+	28 == 0 0 0 1 1 1 0 0 -> invert digits -> 1 1 1 0 0 0 1 1 -> add 1 -> 1 1 1 0 0 1 0 0 == -28 in binary
+* Short and long floating point numbers are represented using 32 or 64 bits respectively
+
+*Uninitialized data (reserving space)*
+Directive	Space reserved
+RESB		1 byte
+RESW		2 bytes
+RESD		4 bytes
+RESQ		8 bytes
+REST		10 bytes
+
+*Initializing tables/arrays*
+We can use the times directive to define arrays and tables like so:
+	array times 9 dw 0 -> Create variable array that is equal to 9 double words zeroed out
+	string times 9 db '*' -> Create variable string that is equal to 9 bytes (9 ascii codes stored as hex)
+
+*EQU directive*
+Used to define constants
+syntax for equ:
+	constant_name equ expression
+	total_students equ 50 -> create constant named total_students equal to 50 (not bytes, the number)
+	len equ 20
+	width equ 10
+	area equ length * width
+	;You can then use these constant in your code
+	mov ebx, area
+	
+equ is very useful when we need to grab the length of strings:
+	msg1 db 'Hello world!'
+	len1 equ $ - msg1
+
+*%assign directive*
+Used to define numeric constants but allows redef
+For example, at the beggining of your code you could have something like:
+	%assign somevar 10
+	(more asm)
+	%assign somevar 30 -> somevar is now == 30
+This directive is case sensitive meaning %ASSIGN wont work
+
+*%define directive*
+Used to define both numeric and string constants, similar to #define in C
+	%define ptr [ebp + 4] ;define ptr as the effective address of ebp + 4 bytes
+Allows redef, is also case sensitive
+
+#INSTRUCTIONS
+
+* MOV
+Used for moving data from one place to another. Takes two operands that should be the same size. Value of source operand
+remains unchanged
+	Syntax: mov dest, src
+	forms:
+		mov register register
+		mov register, immidiate
+		mov memory, immidiate
+		mov register, memory
+		mov memory, register
+	Gotcha:
+		Causes ambiguity at times
+			mov ebx, [my_table]
+			mov [ebx], 110	;Not clear if you want to do my_table[0] = 110 or mov 110 bytes
+			
+			This can be fixed by using a type specified:
+			mov ebx, [my_table]
+			mov [ebx], dword 110
+
+* INC
+Used for incrementing operand by one, can be either register or in memory
+	Syntax: inc unit destination
+	forms:
+		inc ebx 		 ; increase 32 bit register
+		inc dl			 ; increment 8 bit register
+		inc [count]		 ; increment count
+		inc byte [count] ; increment count by one byte
+		
+* DEC
+Same as inc but opposite, decrements
+	Syntax: dec unit (byte, word, etc) destination
+	
+* ADD/SUB
+add/subtract, can take place between:
+	* Register to register
+	* Memory to register
+	* Register to memory
+	* Register to constant data
+	* Memory to constant data
+	!MEMORY TO MEMORY NOT POSSIBLE!
+ADD or SUB ops sets or clears the overflow and carry flags
+	Syntax: 
